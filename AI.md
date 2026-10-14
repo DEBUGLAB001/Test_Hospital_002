@@ -69,51 +69,50 @@ medledger/
 │   ├── test_patients.py           Patient registry CRUD, pagination, and filtering tests
 │   ├── test_permissions.py        Role-based access control and revenue security tests
 │   └── test_search.py             Live patient search, error recovery, and loading state tests
+├── AI.md                          Architecture blueprint, repository map, and defect reference
 └── README.md                      Candidate-facing application and bug reproduction guide
 ```
 
 ## Bugs and Bug Locations
 
-These are the six behavioral bug surfaces covered by the challenge. The named locations identify the owning implementation areas for debugging and review.
-
 ### 1. Appointment date range excludes boundary date
 
-- **Bug location:** `appointments/filters.py`, `AppointmentFilter`
+- **Bug location:** `appointments/filters.py`
 - **How to observe it:** Open the Appointment Scheduling dashboard, set Start Date to `2026-09-01` and End Date to `2026-09-30`.
 - **Failure:** The filter uses an exclusive `'lt'` lookup on `end_date`, omitting appointments scheduled on the exact ending boundary date (`2026-09-30`).
 - **Expected:** The filter uses an inclusive `'lte'` lookup for `end_date`, ensuring all appointments scheduled on the boundary date are included in the query results.
 
 ### 2. Pagination skips the last patient on every page
 
-- **Bug location:** `patients/pagination.py`, `CustomPatientPagination::paginate_queryset`
+- **Bug location:** `patients/pagination.py`
 - **How to observe it:** Open the Patient Registry on Page 1, count displayed patient records (9 instead of 10), then navigate to Page 2.
 - **Failure:** When a page reaches the configured page size of 10, slicing drops the last item (`page_data[:-1]`), displaying only 9 patients and skipping the 10th patient record entirely.
 - **Expected:** Pagination returns all 10 patient records per page without truncation, preserving complete record sequences across pagination pages.
 
 ### 3. Removing appointment deletes wrong record
 
-- **Bug location:** `appointments/views.py`, `AppointmentViewSet::destroy`
+- **Bug location:** `appointments/views.py`
 - **How to observe it:** Open Appointment Scheduling, select a specific appointment, and click Delete.
 - **Failure:** The endpoint executes `Appointment.objects.first().delete()`, deleting the first record in the database instead of the targeted appointment selected by the user.
 - **Expected:** The endpoint calls `self.get_object()` and `self.perform_destroy(instance)`, deleting strictly the selected appointment identified by its primary key / UUID.
 
 ### 4. Patient search remains loading forever after server error
 
-- **Bug location:** `patients/services.py`, `PatientSearchService::execute_search`; UI display surfaced by `static/js/patient_search.js`
+- **Bug location:** `patients/services.py`, `static/js/patient_search.js`
 - **How to observe it:** Trigger a patient search query during a simulated database error or network timeout.
 - **Failure:** Exception handling fails to reset `is_loading` to `False` (and client JavaScript lacks error recovery), leaving the search button permanently disabled and the spinner spinning indefinitely.
 - **Expected:** Search errors reset `is_loading = False`, hide the loading indicator, and restore the search button and input to an interactive state.
 
 ### 5. Billing calculation returns incorrect invoice total
 
-- **Bug location:** `billing/models.py`, `Bill::calculate_total`
+- **Bug location:** `billing/models.py`
 - **How to observe it:** Inspect an invoice with Base Amount = ₹10,000, Discount = 10%, and GST = 18%.
 - **Failure:** Tax is applied to the gross pre-discount amount and calculated with floating-point arithmetic, yielding ₹10,800.00 instead of ₹10,620.00 and introducing rounding drift.
 - **Expected:** The discount is deducted first from the base amount to determine the taxable net value (₹9,000.00), and 18% GST (₹1,620.00) is applied to that net value using exact `Decimal` arithmetic, producing a correct total of ₹10,620.00.
 
 ### 6. Unauthorized receptionist can access admin revenue reports
 
-- **Bug location:** `billing/views.py`, `RevenueAnalyticsView`
+- **Bug location:** `billing/views.py`
 - **How to observe it:** Authenticate using a receptionist user account and navigate to `/api/billing/revenue/` or the Revenue Analytics dashboard.
 - **Failure:** The view specifies `permission_classes = [IsAuthenticated]`, allowing non-admin roles (receptionists and doctors) to view confidential hospital revenue statistics.
 - **Expected:** The view enforces `permission_classes = [IsAuthenticated, IsAdminRole]`, returning HTTP 403 Forbidden for unauthorized roles while granting access only to administrators.
